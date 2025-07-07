@@ -1,0 +1,19 @@
+Input metadata:
+    - Number of initiators: 5
+    - Number of targets: 4
+    - Number of communications (segments per initiator): 11
+
+  Input:
+    - Black regions     = Fixed obstacles (blockages) that must be preserved.
+    - Grey background   = Free area, encoded as a distance-to-obstacle map (darker grey = nearer to blockages; lighter grey = farther away).
+    - Red circles       = 5 initiators; each red circle is divided into 11 equal segments, each segment colored to match one of its 4 blue targets.
+    - Blue circles      = 4 targets, each in a distinct shade of blue.
+
+  Output:
+    - REMOVE all red initiator circles (and their colored segments).
+    - REMOVE all blue target circles.
+    - PRESERVE exactly the black blockages and the grey distance-to-obstacle shading.
+    - ADD green switch circles in the free area, positioned to minimize the average Manhattan distance to the original initiator and target locations (i.e. near clusters of former devices).
+    - INSERT pink routing point circles at every 90° turn along the rectilinear paths that will connect the green switches to each other and to the (formerly) target positions.
+    - The resulting green+pink circles must form a single connected topology network that can route traffic between every initiator–target pair via Manhattan-style (axis-aligned) wiring.
+    - Do not alter any other pixels.
