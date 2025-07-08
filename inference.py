@@ -1,14 +1,29 @@
 import PIL
 import requests
 import torch
-from diffusers import StableDiffusionInstructPix2PixPipeline
+from diffusers import StableDiffusionInstructPix2PixPipeline, UNet2DConditionModel, AutoencoderKL
+from transformers import CLIPTextModel, CLIPTokenizer
 import os 
 from datasets import load_dataset
 import torchvision.transforms as T
 from PIL import Image, ImageDraw, ImageFont
+import numpy as np
+import logging
+
+# Import our optimized inference function
+from utils.inference import run_diffusion_inference_batch
+from utils.logging_utils import log_memory_usage
 
 from huggingface_hub import HfFolder
 token = HfFolder.get_token()
+
+# Setup logging
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+)
+logger = logging.getLogger("inference")
 
 model_id = "lukalafaye/luka"  # <- replace this
 dataset_id = "lukalafaye/NoC"
@@ -20,14 +35,50 @@ num_inference_steps = 200
 image_guidance_scale = 3
 guidance_scale = 10.0
 
+# Option 1: Load with pipeline for comparison purposes
+logger.info(f"Loading model from {model_id}...")
 pipe = StableDiffusionInstructPix2PixPipeline.from_pretrained(
     model_id,
     torch_dtype=torch.float16
 ).to("cuda")
 
+# Option 2: Load individual components for our optimized function
+logger.info("Loading individual model components...")
+unet = UNet2DConditionModel.from_pretrained(
+    f"{model_id}/unet",
+    torch_dtype=torch.float16
+).to("cuda")
+
+tokenizer = CLIPTokenizer.from_pretrained(
+    f"{model_id}/tokenizer"
+)
+
+text_encoder = CLIPTextModel.from_pretrained(
+    f"{model_id}/text_encoder",
+    torch_dtype=torch.float16
+).to("cuda")
+
+vae = AutoencoderKL.from_pretrained(
+    f"{model_id}/vae",
+    torch_dtype=torch.float16
+).to("cuda")
+
+noise_scheduler = pipe.scheduler
+
 generator = torch.Generator("cuda").manual_seed(0)
+logger.info(f"Loading dataset from {dataset_id}...")
 dataset = load_dataset(dataset_id, split="validation")
 to_pil = T.ToPILImage()
+
+# Preprocess function to convert input to proper format
+def preprocess_image(image):
+    """Convert PIL image to tensor in range [-1, 1]"""
+    w, h = image.size
+    w, h = map(lambda x: x - x % 8, (w, h))  # resize to multiple of 8
+    image = image.resize((w, h), resample=PIL.Image.LANCZOS)
+    image = T.ToTensor()(image).unsqueeze(0)
+    return 2.0 * image - 1.0
+
 
 # def download_image(url):
 #    image = PIL.Image.open(requests.get(url, stream=True).raw)
@@ -69,21 +120,148 @@ def save_side_by_side(input_image, ground_truth, pred_image, output_path, title=
 
     canvas.save(output_path)
 
-for i in range(min(N, len(dataset))):
-   sample = dataset[i]
-   input_image = sample["input_image"]
-   prompt = sample["edit_prompt"]
-   ground_truth = sample["edited_image"]
+def run_inference(use_optimized=True, batch_size=1):
+    """
+    Run inference on validation dataset using either pipeline or optimized function.
+    
+    Args:
+        use_optimized (bool): Whether to use our optimized inference function 
+        batch_size (int): Batch size for optimized inference
+    """
+    # Reset peak memory
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+    
+    logger.info(f"Running inference on {min(N, len(dataset))} validation samples...")
+    log_memory_usage("Before inference start", reset_peak=True)
+    
+    if use_optimized and batch_size > 1:
+        # Process in batches with our optimized function
+        for i in range(0, min(N, len(dataset)), batch_size):
+            batch_indices = range(i, min(i + batch_size, min(N, len(dataset))))
+            logger.info(f"Processing batch {i//batch_size + 1} with indices {list(batch_indices)}")
+            
+            # Collect batch data
+            input_images = []
+            prompts = []
+            ground_truths = []
+            
+            for idx in batch_indices:
+                sample = dataset[idx]
+                input_images.append(preprocess_image(sample["input_image"]))
+                prompts.append(sample["edit_prompt"])
+                ground_truths.append(sample["edited_image"])
+            
+            # Stack input images
+            input_images_batch = torch.cat(input_images, dim=0).to("cuda", dtype=torch.float16)
+            
+            # Run optimized batch inference
+            log_memory_usage(f"Before batch inference - batch_size={len(batch_indices)}")
+            pred_images = run_diffusion_inference_batch(
+                unet=unet,
+                vae=vae,
+                text_encoder=text_encoder,
+                noise_scheduler=noise_scheduler,
+                original_images_batch=input_images_batch,
+                prompts_batch=prompts,
+                tokenizer=tokenizer,
+                device="cuda",
+                generator=generator,
+                num_inference_steps=num_inference_steps,
+                image_guidance_scale=image_guidance_scale,
+                guidance_scale=guidance_scale,
+                input_is_latents=False,
+                return_latents=False
+            )
+            log_memory_usage(f"After batch inference")
+            
+            # Save results
+            for j, idx in enumerate(batch_indices):
+                output_path = os.path.join(output_dir, f"val_{idx:03d}.png")
+                save_side_by_side(dataset[idx]["input_image"], ground_truths[j], pred_images[j], output_path)
+                print(f"[{idx+1}/{min(N, len(dataset))}] Saved to {output_path}")
+            
+            # Explicit cleanup
+            del input_images_batch, input_images, prompts, ground_truths
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+    else:
+        # Process one by one using either pipeline or optimized function
+        for i in range(min(N, len(dataset))):
+            sample = dataset[i]
+            input_image = sample["input_image"]
+            prompt = sample["edit_prompt"]
+            ground_truth = sample["edited_image"]
 
-   pred_image = pipe(
-      prompt,
-      image=input_image,
-      num_inference_steps=num_inference_steps,
-      image_guidance_scale=image_guidance_scale,
-      guidance_scale=guidance_scale,
-      generator=generator
-    ).images[0]
+            # Track memory before each inference
+            log_memory_usage(f"Before inference sample {i}")
+            
+            if use_optimized:
+                # Use our optimized function
+                input_tensor = preprocess_image(input_image).to("cuda", dtype=torch.float16)
+                pred_image = run_diffusion_inference_batch(
+                    unet=unet,
+                    vae=vae,
+                    text_encoder=text_encoder,
+                    noise_scheduler=noise_scheduler,
+                    original_images_batch=input_tensor,
+                    prompts_batch=[prompt],
+                    tokenizer=tokenizer,
+                    device="cuda",
+                    generator=generator,
+                    num_inference_steps=num_inference_steps,
+                    image_guidance_scale=image_guidance_scale,
+                    guidance_scale=guidance_scale,
+                    input_is_latents=False,
+                    return_latents=False
+                )[0]  # Get first (only) image from batch result
+            else:
+                # Use standard pipeline
+                pred_image = pipe(
+                    prompt,
+                    image=input_image,
+                    num_inference_steps=num_inference_steps,
+                    image_guidance_scale=image_guidance_scale,
+                    guidance_scale=guidance_scale,
+                    generator=generator
+                ).images[0]
+            
+            # Track memory after inference
+            log_memory_usage(f"After inference sample {i}")
 
-   output_path = os.path.join(output_dir, f"val_{i:03d}.png")
-   save_side_by_side(input_image, ground_truth, pred_image, output_path)
-   print(f"[{i+1}/{N}] Saved to {output_path}")
+            output_path = os.path.join(output_dir, f"val_{i:03d}.png")
+            save_side_by_side(input_image, ground_truth, pred_image, output_path)
+            print(f"[{i+1}/{min(N, len(dataset))}] Saved to {output_path}")
+            
+            # Explicit cleanup
+            if use_optimized:
+                del input_tensor
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+    
+    # Final memory statistics
+    log_memory_usage("After all inference", reset_peak=True)
+
+if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Run Instruct-Pix2Pix inference")
+    parser.add_argument("--use_pipeline", action="store_true", help="Use standard pipeline instead of optimized function")
+    parser.add_argument("--batch_size", type=int, default=1, help="Batch size for optimized inference (1 = no batching)")
+    parser.add_argument("--samples", type=int, default=10, help="Number of validation samples to process")
+    args = parser.parse_args()
+    
+    # Update globals based on args
+    N = args.samples
+    
+    print(f"Running inference with settings:")
+    print(f"  - Method: {'Standard Pipeline' if args.use_pipeline else 'Optimized Function'}")
+    print(f"  - Batch size: {args.batch_size if not args.use_pipeline else 1}")
+    print(f"  - Samples: {N}")
+    print(f"  - Model: {model_id}")
+    print(f"  - Dataset: {dataset_id}")
+    
+    run_inference(use_optimized=not args.use_pipeline, batch_size=args.batch_size)
