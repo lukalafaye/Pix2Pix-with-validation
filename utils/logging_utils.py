@@ -59,7 +59,7 @@ def ensure_wandb_init(wandb_module=None, project_name="instruct-pix2pix", run_na
         return None
 
 
-def log_memory_usage(label="Memory Usage", reset_peak=False):
+def log_memory_usage(label="Memory Usage", reset_peak=False): # not used but uncomment some lines to track memory during validation
     """
     Log GPU and RAM memory usage
     
@@ -211,7 +211,7 @@ def log_validation(unet, vae, text_encoder, noise_scheduler, args, accelerator, 
                         torch.cuda.synchronize()
                     
                     # Log memory before batch inference
-                    log_memory_usage(f"Batch {batch_idx} - Before inference", reset_peak=True)
+                    #log_memory_usage(f"Batch {batch_idx} - Before inference", reset_peak=True)
                     
                     # Option 1: Use pre-tokenized IDs directly (avoiding decode-encode cycle)
                     # Use CPU tensors moved back to GPU only for inference
@@ -222,7 +222,7 @@ def log_validation(unet, vae, text_encoder, noise_scheduler, args, accelerator, 
                         tokenizer,
                         accelerator.device,
                         generator,
-                        num_inference_steps=20,
+                        num_inference_steps=40,
                         image_guidance_scale=1.5,
                         guidance_scale=7,
                         input_is_latents=False,
@@ -239,7 +239,7 @@ def log_validation(unet, vae, text_encoder, noise_scheduler, args, accelerator, 
                         torch.cuda.synchronize()
                     
                     # Log memory after batch inference
-                    log_memory_usage(f"Batch {batch_idx} - After inference")
+                    #log_memory_usage(f"Batch {batch_idx} - After inference")
 
                     logger.info(f"Batch inference successful for batch {batch_idx}")
                     
@@ -310,6 +310,7 @@ def log_validation(unet, vae, text_encoder, noise_scheduler, args, accelerator, 
                         logger.info(f"Logging {len(table.data)} validation images to WandB table '{images_table_name}' at step {step_id}")
                         wandb.log({images_table_name: table}, step=step_id)
                         logger.info(f"Successfully logged {len(filtered_orig_images)} validation images to WandB table '{images_table_name}' at step {step_id}")
+                        import gc; gc.collect()
                         
                         del table, images_table_name
 

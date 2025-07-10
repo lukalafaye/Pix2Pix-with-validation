@@ -103,9 +103,13 @@ def extract_region_centers(mask: np.ndarray) -> list[tuple[int, int]]:
 
     return centers
 
-
 def match_points(predicted, gt):
     """Match predicted points to ground truth points using nearest neighbor."""
+
+    n_pred_orig = len(predicted)
+    n_gt       = len(gt)
+
+
     predicted = list(predicted)
     gt = list(gt)
     matched_predicted = []
@@ -128,6 +132,65 @@ def match_points(predicted, gt):
     valid_scores = [s for s in scores if s != float('inf')]
     avg_score = sum(valid_scores) / len(valid_scores) if valid_scores else float('inf')
     
-    matching_score = (len(predicted) - len(gt)) / len(gt) if gt else 0  # 0% best positive too many predictions, negative too few predictions
+    matching_score = (n_pred_orig - n_gt) / n_gt if n_gt else 0  # 0% best positive too many predictions, negative too few predictions
+    # used to be matching_score = (len(predicted) - len(gt)) / len(gt) if gt else 0 -> if # predictions <= # in gt, then will be -1, else will be 
 
     return matched_predicted, unmatched_predicted, avg_score, matching_score
+
+def decode_latents_to_opencv_images(latents, vae, chunk_size=8, resize=None):
+    """
+    Decodes a batch of latents to OpenCV BGR images, using smaller chunks to avoid OOM.
+    
+    Args:
+        latents: Tensor [B, C, H, W]
+        vae: VAE model
+        chunk_size: Chunk size for decoding to prevent OOM
+        resize: Tuple (H, W) to resize output images (e.g., (256, 256)). If None, no resizing.
+    
+    Returns:
+        List of BGR uint8 images
+    """
+    all_images = []
+
+    for i in range(0, latents.shape[0], chunk_size):
+        with torch.no_grad():
+            latents_chunk = latents[i:i+chunk_size]
+            decoded = vae.decode(latents_chunk / vae.config.scaling_factor, return_dict=False)[0]
+            decoded = (decoded / 2 + 0.5).clamp(0, 1)  # [-1, 1] -> [0, 1]
+            decoded = decoded.permute(0, 2, 3, 1).cpu().numpy()  # BCHW -> BHWC
+
+            for img in decoded:
+                img = (img * 255).astype(np.uint8)
+                img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                if resize is not None:
+                    img_bgr = cv2.resize(img_bgr, resize, interpolation=cv2.INTER_AREA)
+                all_images.append(img_bgr)
+
+    return all_images
+
+
+
+def is_image_black(image_tensor_or_pil, threshold=0):
+    """
+    Check if an image is completely black (or nearly black).
+    
+    Args:
+        image_tensor_or_pil: PIL Image or tensor in any format
+        threshold: Minimum brightness threshold (0-255 for PIL, -1 to 1 for tensor)
+        
+    Returns:
+        bool: True if image is considered black
+    """
+    if hasattr(image_tensor_or_pil, 'getextrema'):  # PIL Image
+        extrema = image_tensor_or_pil.getextrema()
+        return all(channel_ext[1] <= threshold for channel_ext in extrema)
+    else:  # Tensor
+        # Convert tensor range if needed
+        if image_tensor_or_pil.min() >= -1 and image_tensor_or_pil.max() <= 1:
+            # Tensor in [-1, 1] range
+            threshold_tensor = (threshold / 127.5) - 1  # Convert to [-1, 1] range
+        else:
+            # Assume tensor in [0, 255] range
+            threshold_tensor = threshold
+            
+        return image_tensor_or_pil.max() <= threshold_tensor

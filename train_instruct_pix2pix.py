@@ -97,8 +97,25 @@ from utils import (
     # Model and training utilities
     setup_models, setup_optimizer, unwrap_model,
     compute_training_steps, setup_checkpoint_handlers,
-    manage_checkpoints, resume_from_checkpoint
+    manage_checkpoints, resume_from_checkpoint,
+
+    compute_auxiliary_losses
 )
+
+
+from contextlib import contextmanager
+
+@contextmanager
+def temporarily_unfreeze(module):
+    prev_state = [p.requires_grad for p in module.parameters()]
+    for p in module.parameters():
+        p.requires_grad = True
+    try:
+        yield
+    finally:
+        for p, state in zip(module.parameters(), prev_state):
+            p.requires_grad = state
+
 token = HfFolder.get_token()
 
 if is_wandb_available():
@@ -298,6 +315,24 @@ def parse_args():
         default=None,
         help="Conditioning dropout probability. Drops out the conditionings (image and edit prompt) used in training InstructPix2Pix. See section 3.2.1 in the paper: https://huggingface.co/papers/2211.09800.",
     )
+    parser.add_argument(
+        "--use_auxiliary_loss",
+        action="store_true",
+        help="Whether to use auxiliary loss for better prediction of switches and routing points.",
+    )
+    parser.add_argument(
+        "--lambda_switch",
+        type=float,
+        default=5.0,
+        help="Weight for the auxiliary switch loss (green elements).",
+    )
+    parser.add_argument(
+        "--lambda_routing", 
+        type=float,
+        default=5.0,
+        help="Weight for the auxiliary routing loss (purple elements).",
+    )
+
     parser.add_argument(
         "--use_8bit_adam", action="store_true", help="Whether or not to use 8-bit Adam from bitsandbytes."
     )
@@ -764,6 +799,7 @@ def main():
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
+    # print(f"[DEBUG] accelerator.mixed_precision={accelerator.mixed_precision}, weight_dtype={weight_dtype}")
     # Move text_encode and vae to gpu and cast to weight_dtype
     text_encoder.to(accelerator.device, dtype=weight_dtype)
     vae.to(accelerator.device, dtype=weight_dtype)
@@ -884,8 +920,10 @@ def main():
                 # We want to learn the denoising process w.r.t the edited images which
                 # are conditioned on the original image (which was edited) and the edit instruction.
                 # So, first, convert images to latent space.
-                latents = vae.encode(batch_edited).latent_dist.sample()
-                latents = latents * vae.config.scaling_factor
+
+                with torch.no_grad():
+                    latents = vae.encode(batch_edited).latent_dist.sample()
+                    latents = latents * vae.config.scaling_factor
 
                 # Sample noise that we'll add to the latents
                 noise = torch.randn_like(latents)
@@ -903,7 +941,9 @@ def main():
 
                 # Get the additional image embedding for conditioning.
                 # Instead of getting a diagonal Gaussian here, we simply take the mode.
-                original_image_embeds = vae.encode(batch_original).latent_dist.mode()
+
+                with torch.no_grad():
+                    original_image_embeds = vae.encode(batch_original).latent_dist.mode()
                 
                 # Clear batch tensors to save memory
                 del batch_original, batch_edited
@@ -947,7 +987,45 @@ def main():
 
                 # Predict the noise residual and compute loss
                 model_pred = unet(concatenated_noisy_latents, timesteps, encoder_hidden_states, return_dict=False)[0]
+
                 loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+
+                aux_loss_dict = {}
+                if args.use_auxiliary_loss:
+                    # only compute aux losses every N steps to save memory
+                    with temporarily_unfreeze(vae.decoder):
+                        # 1) grab the cumulative ᾱₜ schedule and move to the right device
+                        alphas = noise_scheduler.alphas_cumprod.to(noisy_latents.device)  # shape: (num_timesteps,)
+
+                        # 2) select each sample’s ᾱₜ
+                        #    timesteps: Tensor[bsz] of ints in [0, T)
+                        alpha_prod_t = alphas[timesteps].view(-1, 1, 1, 1)  # shape: (bsz,1,1,1)
+
+                        # 3) compute the square‐roots
+                        sqrt_alpha = alpha_prod_t.sqrt()                        # √ᾱₜ
+                        sqrt_one_minus_alpha = (1 - alpha_prod_t).sqrt()        # √(1−ᾱₜ)
+
+                        # 4) invert the forward step: x₀ = (xₜ − √(1−ᾱₜ)⋅ε) / √ᾱₜ
+                        pred_latents = (noisy_latents - sqrt_one_minus_alpha * model_pred) / sqrt_alpha
+
+                        # print(f"[DEBUG] pred_latents.dtype = {pred_latents.dtype}")
+                        # print(f"[DEBUG] target_latents.dtype = {latents.dtype}")
+
+                        # # inspect one parameter of your VAE to see its dtype
+                        # first_param = next(vae.parameters())
+                        # print(f"[DEBUG] one VAE parameter dtype = {first_param.dtype}")
+
+                        # # also list the top‐level attributes of your VAE so we can find its decoder submodule
+                        # print(f"[DEBUG] vae module structure: {list(vae._modules.keys())}")
+                        
+                        aux_loss_dict = compute_auxiliary_losses(pred_latents, latents, vae, chunk_size=32)
+                        sw   = aux_loss_dict["loss_switch" ].mean()
+                        rout = aux_loss_dict["loss_routing"].mean()
+
+                        print(f"DEBUG: Auxiliary losses - Switch: {sw.item():.6f}, Routing: {rout.item():.6f}")
+
+                        loss = loss + args.lambda_switch * sw + args.lambda_routing * rout
+
                 
                 # print(f"DEBUG: Loss calculated: {loss.item():.6f}")
                 
@@ -971,6 +1049,7 @@ def main():
                 # Log memory usage after training step
                 if step % 50 == 0:  # Only log every 50 steps to avoid log spam
                     log_memory_usage(f"Step {step} - After training", accelerator)
+                    import gc; gc.collect()
 
             # Checks if the accelerator has performed an optimization step behind the scenes
             if accelerator.sync_gradients:
@@ -993,6 +1072,8 @@ def main():
                 if accelerator.is_main_process and wandb_module is not None:
                     wandb_module.log({
                         "train/loss": train_loss,
+                        "train/aux_switch": float(sw.detach().cpu()),
+                        "train/aux_routing": float(rout.detach().cpu()),
                         "train/learning_rate": lr_scheduler.get_last_lr()[0]
                     }, step=global_step)
                 
@@ -1032,8 +1113,6 @@ def main():
                         original_vae_training_mode = vae.training
                         original_text_encoder_training_mode = text_encoder.training
                         
-                        unet.eval()
-                        vae.eval()
                         text_encoder.eval()
 
                         # Clean up memory to avoid issues
@@ -1057,12 +1136,12 @@ def main():
                             global_step=global_step,
                             weight_dtype=weight_dtype,
                             wandb=wandb_module  # Pass wandb module
-                        )
+                        ) # already uses no grad for vae and text encoder...
                         
                         # Restore original training modes
                         unet.train(original_unet_training_mode)
-                        vae.train(original_vae_training_mode) 
-                        text_encoder.train(original_text_encoder_training_mode)
+                        # vae.train(original_vae_training_mode) 
+                        # text_encoder.train(original_text_encoder_training_mode)
 
                         if args.use_ema:
                             # Restore original UNet parameters
@@ -1090,6 +1169,16 @@ def main():
         if args.use_ema:
             ema_unet.copy_to(unet.parameters())
 
+        save_path = manage_checkpoints(
+                            args=args,
+                            output_dir=args.output_dir,
+                            global_step=global_step
+                        )
+                        
+        # Save with accelerator
+        accelerator.save_state(save_path)
+        logger.info(f"Saved checkpoint to {save_path}")
+        
         pipeline = StableDiffusionInstructPix2PixPipeline.from_pretrained(
             args.pretrained_model_name_or_path,
             text_encoder=get_unwrapped_model(text_encoder),

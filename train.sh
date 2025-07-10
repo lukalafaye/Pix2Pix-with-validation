@@ -21,7 +21,7 @@ echo "Running with configuration:"
 echo "- Model: $MODEL_NAME"
 echo "- Dataset: $DATASET_ID"
 echo "- WandB enabled: ${WANDB_MODE:-yes}"
-echo "- Output directory: flexgen_diffusion"
+echo "- Output directory: flexgen_diffusion_dice_loss"
 echo
 
 ulimit -n 65000 && accelerate launch --mixed_precision="fp16" train_instruct_pix2pix.py \
@@ -30,7 +30,7 @@ ulimit -n 65000 && accelerate launch --mixed_precision="fp16" train_instruct_pix
     --enable_xformers_memory_efficient_attention \
     --resolution=256 --random_flip --use_dataset_validation \
     --disable_safety_checker \
-    --train_batch_size=64 --gradient_accumulation_steps=2 --gradient_checkpointing \
+    --train_batch_size=32 --gradient_accumulation_steps=2 --gradient_checkpointing \
     --checkpointing_steps=500 \
     --learning_rate=1e-05 --max_grad_norm=1 \
     --conditioning_dropout_prob=0.05 \
@@ -38,13 +38,13 @@ ulimit -n 65000 && accelerate launch --mixed_precision="fp16" train_instruct_pix
     --seed=42 \
     --report_to=wandb \
     --cache_dir="/data1/code/luka/instruct_pix2pix/cache" \
-    --output_dir="flexgen_diffusion" \
-    --num_train_epochs=1 \
-    --validation_batches=10 \
-    --num_validation_images=1000 \
+    --output_dir="flexgen_diffusion_dice_loss" \
+    --num_train_epochs=3 \
+    --validation_batches=50 \
+    --num_validation_images=128 \
     --lr_scheduler="cosine" \
-    --resume_from_checkpoint="latest" \
     --lr_warmup_steps=500 \
+    --use_auxiliary_loss  \
     --push_to_hub
     
     # The checkpoint resume fix is now implemented in train_instruct_pix2pix.py
@@ -67,3 +67,13 @@ ulimit -n 65000 && accelerate launch --mixed_precision="fp16" train_instruct_pix
 # 1 step = saw one effective batch
 # 1 epoch = num samples (60k) / effective batch (4) = 15k steps
 # validation every 1500 batches = 1500 steps?
+
+    # --lambda_switch=5.0 \
+    # --lambda_routing=5.0 \
+    # --auxiliary_loss_warmup_steps=1000 \
+    # --auxiliary_loss_max_steps=10000 \
+    # --auxiliary_focal_alpha=0.25 \
+    # --auxiliary_focal_gamma=2.0 \
+    # --auxiliary_multi_scale \
+    # --auxiliary_perceptual_weight=0.5 \
+    # --auxiliary_loss_frequency=1 \
