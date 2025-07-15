@@ -1019,12 +1019,12 @@ def main():
                         # print(f"[DEBUG] vae module structure: {list(vae._modules.keys())}")
                         
                         aux_loss_dict = compute_auxiliary_losses(pred_latents, latents, vae, chunk_size=32)
-                        sw   = aux_loss_dict["loss_switch" ].mean()
-                        rout = aux_loss_dict["loss_routing"].mean()
+                        sw   = args.lambda_switch * aux_loss_dict["loss_switch" ].mean()
+                        rout = args.lambda_routing * aux_loss_dict["loss_routing"].mean()
 
                         print(f"DEBUG: Auxiliary losses - Switch: {sw.item():.6f}, Routing: {rout.item():.6f}")
 
-                        loss = loss + args.lambda_switch * sw + args.lambda_routing * rout
+                        loss = loss + sw + rout
 
                 
                 # print(f"DEBUG: Loss calculated: {loss.item():.6f}")
@@ -1069,14 +1069,24 @@ def main():
 
                 # Log training metrics directly to wandb with explicit step for consistency with validation metrics
                 # Only log once to avoid duplicate "train/loss" plots
+
+
                 if accelerator.is_main_process and wandb_module is not None:
-                    wandb_module.log({
-                        "train/loss": train_loss,
-                        "train/aux_switch": float(sw.detach().cpu()),
-                        "train/aux_routing": float(rout.detach().cpu()),
-                        "train/learning_rate": lr_scheduler.get_last_lr()[0]
-                    }, step=global_step)
-                
+                    metrics = {
+                        "train/loss":            train_loss,
+                        "train/learning_rate":   lr_scheduler.get_last_lr()[0],
+                    }
+
+                    if args.use_auxiliary_loss:
+                        metrics.update(
+                            {
+                                "train/aux_switch":  sw.item() if sw is not None else 0,
+                                "train/aux_routing": rout.item() if rout is not None else 0,
+                            }
+                        )
+                    
+                    wandb_module.log(metrics, step=global_step)
+
                 # Reset for next step
                 train_loss = 0.0
                 current_step_loss = 0.0
@@ -1177,6 +1187,7 @@ def main():
                         
         # Save with accelerator
         accelerator.save_state(save_path)
+
         logger.info(f"Saved checkpoint to {save_path}")
         
         pipeline = StableDiffusionInstructPix2PixPipeline.from_pretrained(

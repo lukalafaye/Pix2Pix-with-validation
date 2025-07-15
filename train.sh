@@ -38,18 +38,18 @@ ulimit -n 65000 && accelerate launch --mixed_precision="fp16" train_instruct_pix
     --seed=42 \
     --report_to=wandb \
     --cache_dir="/data1/code/luka/instruct_pix2pix/cache" \
-    --output_dir="flexgen_diffusion_dice_loss" \
+    --output_dir="flexgen_diffusion_with_dice" \
     --num_train_epochs=3 \
     --validation_batches=50 \
     --num_validation_images=128 \
     --lr_scheduler="cosine" \
     --lr_warmup_steps=500 \
     --use_auxiliary_loss  \
-    --push_to_hub
+    #--push_to_hub
     
     # The checkpoint resume fix is now implemented in train_instruct_pix2pix.py
     # It will handle the case where checkpoint global_step > max_train_steps
-    
+    # up to 3762 was trained without aux loss!
     #    --resume_from_checkpoint="latest" \
 
     # \
