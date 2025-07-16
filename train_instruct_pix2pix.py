@@ -106,10 +106,10 @@ from utils import (
 from contextlib import contextmanager
 
 @contextmanager
-def temporarily_unfreeze(module):
+def temporarily_freeze(module):
     prev_state = [p.requires_grad for p in module.parameters()]
     for p in module.parameters():
-        p.requires_grad = True
+        p.requires_grad = False
     try:
         yield
     finally:
@@ -323,13 +323,13 @@ def parse_args():
     parser.add_argument(
         "--lambda_switch",
         type=float,
-        default=5.0,
+        default=0.25,
         help="Weight for the auxiliary switch loss (green elements).",
     )
     parser.add_argument(
         "--lambda_routing", 
         type=float,
-        default=5.0,
+        default=0.25,
         help="Weight for the auxiliary routing loss (purple elements).",
     )
 
@@ -991,9 +991,9 @@ def main():
                 loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
 
                 aux_loss_dict = {}
-                if args.use_auxiliary_loss:
+                if args.use_auxiliary_loss and global_step % 5 == 0:
                     # only compute aux losses every N steps to save memory
-                    with temporarily_unfreeze(vae.decoder):
+                    with temporarily_freeze(vae.decoder):
                         # 1) grab the cumulative ᾱₜ schedule and move to the right device
                         alphas = noise_scheduler.alphas_cumprod.to(noisy_latents.device)  # shape: (num_timesteps,)
 
@@ -1018,13 +1018,19 @@ def main():
                         # # also list the top‐level attributes of your VAE so we can find its decoder submodule
                         # print(f"[DEBUG] vae module structure: {list(vae._modules.keys())}")
                         
-                        aux_loss_dict = compute_auxiliary_losses(pred_latents, latents, vae, chunk_size=32)
-                        sw   = args.lambda_switch * aux_loss_dict["loss_switch" ].mean()
+                        aux_loss_dict = compute_auxiliary_losses(pred_latents, latents, vae, chunk_size=1) # batch size for aux loss computation will be smaller...
+                        sw   = args.lambda_switch * aux_loss_dict["loss_switch"].mean()
                         rout = args.lambda_routing * aux_loss_dict["loss_routing"].mean()
 
-                        print(f"DEBUG: Auxiliary losses - Switch: {sw.item():.6f}, Routing: {rout.item():.6f}")
+                        #print(f"DEBUG: Auxiliary losses - Switch: {sw.item():.6f}, Routing: {rout.item():.6f}")
 
                         loss = loss + sw + rout
+
+                       
+                        # logger.info(f" {sw.requires_grad}   # should be True if gradients will flow")
+                        # logger.info(f" {rout.requires_grad}   # should be True if gradients will flow")
+                        # logger.info(f" {loss.requires_grad}   # should be True if gradients will flow")
+                        # print(loss.requires_grad)
 
                 
                 # print(f"DEBUG: Loss calculated: {loss.item():.6f}")

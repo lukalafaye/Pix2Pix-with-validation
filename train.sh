@@ -1,5 +1,8 @@
 #!/bin/bash
 
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:64
+export CUDA_LAUNCH_BLOCKING=1
+
 set -a
 source .env
 set +a
@@ -15,13 +18,14 @@ fi
 
 export MODEL_NAME="timbrooks/instruct-pix2pix"
 export DATASET_ID="lukalafaye/NoC_with_dots"
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # Print environment info
 echo "Running with configuration:"
 echo "- Model: $MODEL_NAME"
 echo "- Dataset: $DATASET_ID"
 echo "- WandB enabled: ${WANDB_MODE:-yes}"
-echo "- Output directory: flexgen_diffusion_dice_loss"
+echo "- Output directory: flexgen_diffusion_without_dice"
 echo
 
 ulimit -n 65000 && accelerate launch --mixed_precision="fp16" train_instruct_pix2pix.py \
@@ -30,7 +34,7 @@ ulimit -n 65000 && accelerate launch --mixed_precision="fp16" train_instruct_pix
     --enable_xformers_memory_efficient_attention \
     --resolution=256 --random_flip --use_dataset_validation \
     --disable_safety_checker \
-    --train_batch_size=32 --gradient_accumulation_steps=2 --gradient_checkpointing \
+    --train_batch_size=8 --gradient_accumulation_steps=4 --gradient_checkpointing \
     --checkpointing_steps=500 \
     --learning_rate=1e-05 --max_grad_norm=1 \
     --conditioning_dropout_prob=0.05 \
@@ -38,7 +42,7 @@ ulimit -n 65000 && accelerate launch --mixed_precision="fp16" train_instruct_pix
     --seed=42 \
     --report_to=wandb \
     --cache_dir="/data1/code/luka/instruct_pix2pix/cache" \
-    --output_dir="flexgen_diffusion_with_dice" \
+    --output_dir="flexgen_diffusionlatestdicelambda05" \
     --num_train_epochs=3 \
     --validation_batches=50 \
     --num_validation_images=128 \
@@ -77,3 +81,6 @@ ulimit -n 65000 && accelerate launch --mixed_precision="fp16" train_instruct_pix
     # --auxiliary_multi_scale \
     # --auxiliary_perceptual_weight=0.5 \
     # --auxiliary_loss_frequency=1 \
+
+#history
+# flexgen_diffusion_with_dice contains with dice loss

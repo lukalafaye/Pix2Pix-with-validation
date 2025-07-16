@@ -9,3 +9,5 @@ wandb
 .env
 *.ipynb
 flexgen_diffusion_with_dice/
+flexgen_diffusion_without_dice/
+flexgen_diffusionlatestdicelambda05

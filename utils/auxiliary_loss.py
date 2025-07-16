@@ -213,55 +213,82 @@ def compute_auxiliary_losses(pred_latents, target_latents, vae, lambda_switch=5.
     device = pred_latents.device
 
     vae_dtype = next(vae.parameters()).dtype
+
+    loss_switch_total = torch.tensor(0.0, device=device, requires_grad=True)
+    loss_routing_total = torch.tensor(0.0, device=device, requires_grad=True)
+
+    switch_pixel_total = 0
+    routing_pixel_total = 0
+
+    
     # Decode in chunks
-    decoded_preds, decoded_targets = [], []
+    #decoded_preds, decoded_targets = [], []
+
     for i in range(0, pred_latents.size(0), chunk_size):
+        torch.cuda.empty_cache()
         pred_chunk = pred_latents[i:i+chunk_size]
         target_chunk = target_latents[i:i+chunk_size]
 
-        pred_chunk = pred_chunk.to(vae_dtype)
-        target_chunk = target_chunk.to(vae_dtype)
+        pred_chunk = pred_chunk.to(dtype=vae_dtype, device=device)
+        target_chunk = target_chunk.to(dtype=vae_dtype, device=device)
 
-        with torch.no_grad():
-            decoded_pred = vae.decode(pred_chunk / vae.config.scaling_factor, return_dict=False)[0]
-            decoded_target = vae.decode(target_chunk / vae.config.scaling_factor, return_dict=False)[0]
+        with torch.amp.autocast('cuda', enabled=False):
+            decoded_pred = vae.decode(pred_chunk / vae.config.scaling_factor, return_dict=False)[0] # stock grad here
 
-        decoded_preds.append(decoded_pred)
-        decoded_targets.append(decoded_target)
+            with torch.no_grad():
+                decoded_target = vae.decode(target_chunk / vae.config.scaling_factor, return_dict=False)[0] # no grad tracked here
 
-        del decoded_pred, decoded_target
-        #torch.cuda.empty_cache()
+        pred_norm = (decoded_pred.clamp(-1, 1) + 1) / 2  # [0,1] for HSV
 
-    pred_images = torch.cat(decoded_preds, dim=0).float()  # [B,3,H,W]
-    target_images = torch.cat(decoded_targets, dim=0).float() 
+        if pred_norm.mean() < 0.05:
+            continue
+        target_norm = (decoded_target.clamp(-1, 1) + 1) / 2
 
-    pred_norm = (pred_images.clamp(-1, 1) + 1) / 2  # [0,1] for HSV
-    target_norm = (target_images.clamp(-1, 1) + 1) / 2
+        hsv = rgb_to_hsv_torch(target_norm) # build mask from gt instead of prediction!
+        switch_mask = hue_mask(hsv, (30/360, 90/360)).float()
+        routing_mask = hue_mask(hsv, (130/360, 150/360)).float()
 
-    hsv = rgb_to_hsv_torch(pred_norm)
+        switch_pixels = switch_mask.sum().detach().item()
+        routing_pixels = routing_mask.sum().detach().item()
 
-    # Define hue ranges in [0,1]
-    switch_mask = hue_mask(hsv, (30/360, 90/360)).float() 
-    routing_mask = hue_mask(hsv, (130/360, 150/360)).float() 
+        switch_pixel_total += switch_pixels
+        routing_pixel_total += routing_pixels
 
-    loss_switch  = lambda_switch  * dice_loss(pred_norm, target_norm, switch_mask)  if switch_mask.sum()>0 else torch.tensor(0.0, device=device)
-    loss_routing = lambda_routing * dice_loss(pred_norm, target_norm, routing_mask) if routing_mask.sum()>0 else torch.tensor(0.0, device=device)
-    loss_aux     = loss_switch + loss_routing
+        if switch_pixels > 0:
+            switch_loss = lambda_switch * dice_loss(pred_norm, target_norm, switch_mask)
+            loss_switch_total = loss_switch_total + switch_loss
+
+        if routing_pixels > 0:
+            routing_loss = lambda_routing * dice_loss(pred_norm, target_norm, routing_mask)
+            loss_routing_total = loss_routing_total + routing_loss
+
+        del decoded_pred, decoded_target, pred_norm, target_norm, hsv, switch_mask, routing_mask
+        torch.cuda.empty_cache()
+
+    # pred_images = torch.cat(decoded_preds, dim=0).float()  # [B,3,H,W]
+    # target_images = torch.cat(decoded_targets, dim=0).float() 
+
+    # pred_norm = (pred_images.clamp(-1, 1) + 1) / 2 
+    # target_norm = (target_images.clamp(-1, 1) + 1) / 2
+
+    # hsv = rgb_to_hsv_torch(pred_norm)
+
+    # # Define hue ranges in [0,1]
+    # switch_mask = hue_mask(hsv, (30/360, 90/360)).float() 
+    # routing_mask = hue_mask(hsv, (130/360, 150/360)).float() 
+
+    # loss_switch  = lambda_switch  * dice_loss(pred_norm, target_norm, switch_mask)  if switch_mask.sum()>0 else torch.tensor(0.0, device=device)
+    # loss_routing = lambda_routing * dice_loss(pred_norm, target_norm, routing_mask) if routing_mask.sum()>0 else torch.tensor(0.0, device=device)
+    # loss_aux     = loss_switch + loss_routing
 
     # 3) stash only the scalars you need
     out = {
-        "loss_auxiliary": loss_aux,
-        "loss_switch":    loss_switch,
-        "loss_routing":   loss_routing,
-        "switch_pixels":  switch_mask.sum().item(),
-        "routing_pixels": routing_mask.sum().item(),
+        "loss_auxiliary": loss_switch_total + loss_routing_total,
+        "loss_switch":    loss_switch_total,
+        "loss_routing":   loss_routing_total,
+        "switch_pixels":  switch_pixel_total,
+        "routing_pixels": routing_pixel_total,
     }
-
-    # 4) now delete the big tensors & lists
-    del decoded_preds, decoded_targets
-    del pred_images, target_images, pred_norm, target_norm, hsv
-    del switch_mask, routing_mask
-    import gc; gc.collect()
 
     # 5) return just the small dict
     return out
