@@ -323,13 +323,13 @@ def parse_args():
     parser.add_argument(
         "--lambda_switch",
         type=float,
-        default=0.25,
+        default=1.0,
         help="Weight for the auxiliary switch loss (green elements).",
     )
     parser.add_argument(
         "--lambda_routing", 
         type=float,
-        default=0.25,
+        default=1.0,
         help="Weight for the auxiliary routing loss (purple elements).",
     )
 
