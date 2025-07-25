@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0" version="28.0.6">
   <diagram name="Page-1" id="Zg2J0i8kcsBhqcDElQuv">
-    <mxGraphModel dx="864" dy="455" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="1" shadow="0">
+    <mxGraphModel dx="1501" dy="791" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="1" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -431,8 +431,8 @@
         <mxCell id="mFYE1-h2MJAMsI_2LWZ7-235" value="&lt;div&gt;Sample time = positional encoding (320) -&amp;gt; MLP -&amp;gt; 1280&amp;nbsp;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" parent="1" vertex="1">
           <mxGeometry x="1461" y="960" width="139" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="mFYE1-h2MJAMsI_2LWZ7-238" value="ResNet + ST" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;fontColor=#0000FF;" parent="1" vertex="1">
-          <mxGeometry x="2510" y="1189" width="90" height="30" as="geometry" />
+        <mxCell id="mFYE1-h2MJAMsI_2LWZ7-238" value="ResNet + attn" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;fontColor=#0000FF;" parent="1" vertex="1">
+          <mxGeometry x="2505" y="1189" width="100" height="30" as="geometry" />
         </mxCell>
         <mxCell id="mFYE1-h2MJAMsI_2LWZ7-239" value="" style="shape=flexArrow;endArrow=classic;html=1;rounded=0;fillColor=#0050ef;strokeColor=#001DBC;endWidth=7;endSize=6.38;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" edge="1">
           <mxGeometry width="50" height="50" relative="1" as="geometry">
@@ -602,7 +602,7 @@
         <mxCell id="mFYE1-h2MJAMsI_2LWZ7-296" value="&lt;div&gt;VAE&lt;/div&gt;&lt;div&gt;Encoder&lt;/div&gt;" style="rhombus;whiteSpace=wrap;html=1;" parent="1" vertex="1">
           <mxGeometry x="400" y="550" width="84.5" height="69" as="geometry" />
         </mxCell>
-        <mxCell id="mFYE1-h2MJAMsI_2LWZ7-305" value="&lt;div&gt;Spatial Transformer&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Qk (HxW,D)&amp;nbsp;&lt;/div&gt;&lt;div&gt;applied on flattened left input&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Wk (768,D) Vk (768, D) applied on text context embedding&lt;/div&gt;" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#60a917;fontColor=#ffffff;strokeColor=#2D7600;" parent="1" vertex="1">
+        <mxCell id="mFYE1-h2MJAMsI_2LWZ7-305" value="&lt;div&gt;Norm+Linear(qkv)+&lt;/div&gt;&lt;div&gt;xN Transformer blocks+conv projection&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Qk (HxW,D)&amp;nbsp;&lt;/div&gt;&lt;div&gt;applied on flattened left input&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Wk (768,D) Vk (768, D) applied on text context embedding&lt;/div&gt;" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#60a917;fontColor=#ffffff;strokeColor=#2D7600;" parent="1" vertex="1">
           <mxGeometry x="1904.5" y="1119" width="201" height="201" as="geometry" />
         </mxCell>
         <mxCell id="mFYE1-h2MJAMsI_2LWZ7-306" value="$$768$$" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;rotation=0;" parent="1" vertex="1">
