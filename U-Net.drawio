@@ -517,9 +517,6 @@
         <mxCell id="mFYE1-h2MJAMsI_2LWZ7-260" value="&lt;div&gt;&lt;font style=&quot;font-size: 14px;&quot;&gt;$$1280$$&amp;nbsp;&lt;/font&gt;&lt;/div&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;rotation=0;" parent="1" vertex="1">
           <mxGeometry x="1765" y="1060" width="90" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="mFYE1-h2MJAMsI_2LWZ7-262" value="SiLU + Linear 1280-&amp;gt;d" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" parent="1" vertex="1">
-          <mxGeometry x="1617" y="1070" width="140" height="30" as="geometry" />
-        </mxCell>
         <mxCell id="mFYE1-h2MJAMsI_2LWZ7-263" value="" style="shape=cross;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
           <mxGeometry x="1625.5" y="1219" width="30" height="30" as="geometry" />
         </mxCell>
@@ -538,14 +535,16 @@
             <mxPoint x="1688.4799999999996" y="1073" as="sourcePoint" />
             <mxPoint x="1778.5" y="1281" as="targetPoint" />
             <Array as="points">
-              <mxPoint x="1798.5" y="1229" />
-              <mxPoint x="1665.5" y="1109" />
+              <mxPoint x="1670" y="1130" />
+              <mxPoint x="1641" y="1130" />
+              <mxPoint x="1670" y="1180" />
+              <mxPoint x="1650" y="1170" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="o8Wh6DQ-djE733tk-adF-1" value="Broadcast to HxW" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="mFYE1-h2MJAMsI_2LWZ7-265">
+        <mxCell id="o8Wh6DQ-djE733tk-adF-1" value="&lt;div&gt;SiLU + Linear 1280-&amp;gt;d&lt;/div&gt;&lt;div&gt;Broadcast to HxW&lt;/div&gt;" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="mFYE1-h2MJAMsI_2LWZ7-265">
           <mxGeometry x="-0.6617" relative="1" as="geometry">
-            <mxPoint y="-1" as="offset" />
+            <mxPoint x="13" y="-23" as="offset" />
           </mxGeometry>
         </mxCell>
         <mxCell id="mFYE1-h2MJAMsI_2LWZ7-268" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;$$H \times W$$&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;rotation=-90;" parent="1" vertex="1">
