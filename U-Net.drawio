@@ -518,7 +518,7 @@
           <mxGeometry x="1765" y="1060" width="90" height="30" as="geometry" />
         </mxCell>
         <mxCell id="mFYE1-h2MJAMsI_2LWZ7-262" value="SiLU + Linear 1280-&amp;gt;d" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" parent="1" vertex="1">
-          <mxGeometry x="1690.5" y="1079" width="140" height="30" as="geometry" />
+          <mxGeometry x="1617" y="1070" width="140" height="30" as="geometry" />
         </mxCell>
         <mxCell id="mFYE1-h2MJAMsI_2LWZ7-263" value="" style="shape=cross;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
           <mxGeometry x="1625.5" y="1219" width="30" height="30" as="geometry" />
